@@ -558,9 +558,6 @@ class GaiaClusterMembers(object):
         #old code members = self.data.loc[self.data["membership"] > self.mem_min].copy(deep=True)
         members = self.radial_limited_data.loc[self.radial_limited_data["membership"] > self.mem_min].copy(deep=True)
         
-        print("Length of members = ", len(members))
-        print(members.columns)
-
         # include only the columns we need in the output table.
         # Currently I am not including Gaia photometry
         # If we want to include Gaia photometry, we need to include errors.
@@ -709,8 +706,7 @@ class GaiaClusterMembers(object):
         ]:
             out[c] = out[c].fillna(-9.9)
             out[c] = out[c].replace(np.nan,-9.9)
-        print("after4")
-        print(out["J_2M"].value_counts().get(-9.9))
+      
         
 
         # expose this so it can be used elsewhere
@@ -766,9 +762,6 @@ class GaiaClusterMembers(object):
             )
 
     def generateYamlFile(self):
-        print("GENERATING")
-        print(f"Length now: {len(self.yamlInputDict['Fe_H'])}")
-        print(self.yamlInputDict['Av'])
         if self.verbose > 0:
             print("generating yaml file ...")
 
@@ -1209,9 +1202,6 @@ class GaiaClusterMembers(object):
         self.data.rename(columns = {"G_BP":color1, "G_RP": color2, "G": mag}, inplace= True)
         #remove data points with missing data 
 
-        print("before")
-        print(self.data["sigJ_2M"].value_counts().get(-9.9))
-        print(self.data.columns)
         for c in [
         "phot_g_mean_mag",
         "phot_bp_mean_mag",
@@ -1241,9 +1231,6 @@ class GaiaClusterMembers(object):
             "sigKs_2M",
         ]:
             self.data[c] = self.data[c].replace(-9.9,np.nan)
-        print("after")
-        print(self.data["sigJ_2M"].value_counts().get(-9.9))
-        
         self.df = self.data
         
         #does delete a couple of the -9.9s
@@ -1298,7 +1285,6 @@ class GaiaClusterMembers(object):
                 return [x]
             
         def getObsIsochrone(iso, mM, Av):
-            print(iso)
             color1Obs = offsetMag(iso[color1], color1, mM, Av)
             color2Obs = offsetMag(iso[color2], color2, mM, Av)
             magObs = offsetMag(iso[mag], mag, mM, Av)
@@ -1473,8 +1459,6 @@ class GaiaClusterMembers(object):
         writeButton = Button(label="Write .phot and .yaml files", button_type="success")
 
         def writeCallback(event):
-            print("Before")
-            print(self.df["sigJ_2M"].value_counts().get(-9.9))
             #convert back data to its old format
 
             self.radial_limited_data = self.df
@@ -1483,8 +1467,6 @@ class GaiaClusterMembers(object):
             condition2 = self.radial_limited_data[color2] != "NaN"
             self.radial_limited_data = self.radial_limited_data.where(condition, other = 99.9)
             self.radial_limited_data = self.radial_limited_data.where(condition2, other = 99.9)
-            print("after1")
-            print(self.radial_limited_data["sigJ_2M"].value_counts().get(-9.9))
 
             #rename columns 
             #out = out.rename(columns={"phot_g_mean_mag": "G"})
@@ -1522,9 +1504,7 @@ class GaiaClusterMembers(object):
             filename  = self.clusterName + "_dir" + "/" + "base9" + ".yaml"
             self.yamlOutputFileName= filename
 
-            print("after2")
-            print(self.radial_limited_data.columns)
-            print(self.radial_limited_data["j_msigcom"].value_counts().get(-9.9))
+           
             '''
             for c in [
                 "phot_g_mean_mag",
@@ -1557,8 +1537,6 @@ class GaiaClusterMembers(object):
                 self.radial_limited_data[c] = self.radial_limited_data[c].replace(np.nan, -9.9)
             '''
             # output updated phot files
-            print("after3")
-            print(self.radial_limited_data["j_msigcom"].value_counts().get(np.nan))
             self.generatePhotFile()
             
            
@@ -1569,7 +1547,6 @@ class GaiaClusterMembers(object):
             for k in keys:
                 # initial values
                 init = self.yamlInputDict[k].copy()
-                print(len(self.yamlInputDict[k]))
                 self.yamlInputDict[k][0] = sourceCluster.data[k][0]
 
                 # variances
@@ -1643,7 +1620,6 @@ class GaiaClusterMembers(object):
     
     #functions I've added
     def CMDFromPhot(self, fileName = "CleanedCMD.pdf", min_x = None, max_x = None, min_y = None, max_y = None, scaled = False):
-        print("MAKING CMD")
         filename  = self.clusterName + "_dir" + "/" + self.clusterName + ".phot"
         photdata = pd.read_csv(filename,date_format=pd.DataFrame, delimiter= " ")
         #phot file genreated creates stars at G = 99.9 if there are sus for base9 to ignore, so i delete them when generating cmd 
@@ -1681,6 +1657,7 @@ class GaiaClusterMembers(object):
         ax.set_ylabel("G", fontsize=16)
         #if savefig:
         f.savefig(self.plotNameRoot + fileName, format="PDF", bbox_inches="tight")
+        print(f"saving CMD to: {fileName}")
         plt.show()
     
     def generateSpacialPlot(self):
@@ -1731,11 +1708,9 @@ class GaiaClusterMembers(object):
         filename = self.clusterName + "_dir" + "/" + self.clusterName + ".phot"
         outfile = self.clusterName + "_dir" + "/" + self.clusterName + "nops.phot"
         self.data = pd.read_csv(filename,date_format=pd.DataFrame, delimiter= " ")
-        print(self.data.columns)
         ps_parameters = ["g_ps","r_ps","i_ps","z_ps","y_ps", "sigg_ps", "sigr_ps", "sigi_ps", "sigz_ps", "sigy_ps"]
         #for column in ps_parameters:
         self.data = self.data.drop(ps_parameters, axis=1)
-        print(self.data.columns)
         ffmt = "%-7.4f"
         with open(outfile, "w", newline="\n") as f:
             ascii.write(
@@ -1764,10 +1739,12 @@ class GaiaClusterMembers(object):
                     "useDBI": "%1d",
                 },
             )
+        print("Ps data removed.")
        
 
     def runAll(self, clusterName, filename=None):
-        self.clusterName=clusterName
+        #reset parameters to run again
+        self.group_no = None
         self.readDataFromFile(clusterName, filename)
         self.get_small_data(clusterName)
         params = ["radial_velocity", "distance", "pmra", "pmdec"]
