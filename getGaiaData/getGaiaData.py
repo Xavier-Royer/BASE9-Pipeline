@@ -55,6 +55,17 @@ class GaiaClusterMembers(object):
 
         # radius of the area to return
         self.radius = radius  # degrees
+        
+        #my code
+        self.member_lim_radius = 1.0
+        self.radial_limited_data = None
+        self.prior_pc = None
+        self.prior_ra = None
+        self.prior_dec = None
+        self.clusterName = None
+        self.x_lim = None
+        self.y_lim = None
+        #end my code
 
         # catalogs (when DR3 comes out, we will change that to the default)
         self.GaiaCatalog = "gaiadr3.gaia_source"
@@ -134,7 +145,7 @@ class GaiaClusterMembers(object):
         self.yamlInputDict = {
             "photFile": self.photOutputFileName,
             "outputFileBase": None,
-            "modelDirectory": "/projects/p31721/BASE9/base-models/",
+            "modelDirectory": "/home/xroyer/base9-master/base-models-new_models/",
             "msRgbModel": 5,
             "Fe_H": [0.0, 0.3, 0.3],
             "Av": [0.0, 0.3, 0.3],
@@ -143,6 +154,7 @@ class GaiaClusterMembers(object):
             "Y": [0.29, 0.0, 0.0],
             "carbonicity": [0.38, 0.0, 0.0],
         }
+        
 
         # to rename the model, given Gaia phot columns
         # for PARSEC models
@@ -245,7 +257,7 @@ class GaiaClusterMembers(object):
                 self.data["ra"], self.data["dec"], frame="icrs"
             )
             self.data["rCenter"] = self.center.separation(self.data["coord"])
-            self.data["id"] = self.data["SOURCE_ID"]
+            self.data["id"] = self.data["source_id"]
             self.data["distance"] = (
                 (self.data["parallax"])
                 .to(units.parsec, equivalencies=units.parallax())
@@ -285,13 +297,18 @@ class GaiaClusterMembers(object):
         self.data = pd.read_csv(filename, sep=" ")
 
     def get_small_data(self, clusterName):
+        input_parameters = []
         if self.group_no is None:
             check = "n"
             while check == "n":
-                lim_radius = float(input("Search radius for HDBSCAN? (in degrees)"))
+                lim_radius = float(input("Search radius for HDBSCAN? (float in degrees)"))
+                input_parameters.append(lim_radius)
+                self.member_lim_radius = float(input("Member Maximum Radius?")) #used as criteria for filtering cluster members
+                input_parameters.append(self.member_lim_radius)
                 small_data = self.data[self.data["rCenter"] < lim_radius]
                 blob = small_data[["ra", "dec", "pmra", "pmdec", "parallax"]]
-                min_cluster_size = int(input("Min cluster size?"))
+                min_cluster_size = int(input("Min cluster size? (int)"))
+                input_parameters.append(min_cluster_size)
                 clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size)
                 clusterer.fit(blob)
                 small_data["label"] = clusterer.labels_
@@ -305,6 +322,7 @@ class GaiaClusterMembers(object):
                         i,
                     )
                 group_no = int(input("Which group?"))
+                input_parameters.append(group_no)
                 group = small_data[small_data["label"] == group_no]
                 print("Cluster distance = ", np.median(group["distance"].values), " pc")
                 cs = plt.scatter(
@@ -346,6 +364,13 @@ class GaiaClusterMembers(object):
             )
             plt.show()
         self.small_data = small_data[small_data["label"] == self.group_no]
+        filename = self.clusterName + "_dir" + "/" + "InputParameters" + ".csv"
+        parameters = ["HDScan Radius", "Membership Radius", "Min Cluster Size", "Cluster Group Number"]
+        f = open(filename,"w")
+        for i in range(len(input_parameters)):
+            f.write(parameters[i] + "," + str(input_parameters[i]) + "\n")
+        f.close()
+        
 
     def get_p_value(self, param):
         self.small_data[param].fill_value = np.nan
@@ -425,8 +450,11 @@ class GaiaClusterMembers(object):
         self.data["membership"] = p
 
     def get_coreRadius(self):
-        mask = self.data["membership"] > self.mem_min
-        members = self.data[mask]
+        #old code mask = self.data["membership"] > self.mem_min
+        #old code members = self.data[mask]
+
+        mask = self.radial_limited_data["membership"] > self.mem_min
+        members = self.radial_limited_data[mask]
         bins = np.linspace(0, np.max(members["rCenter"]) * 60, 50)
 
         # calculate the bin centers
@@ -505,13 +533,16 @@ class GaiaClusterMembers(object):
         ax.plot(data[x1] - data[x2], data[y], ".", color="lightgray")
 
         # members
-        mask = self.data[self.data["membership"] > self.mem_min]
-        # self.get_minMembership(data[mask][y])
+        #old code mask = self.data[self.data["membership"] > self.mem_min]
+        mask = self.radial_limited_data[self.radial_limited_data["membership"] > self.mem_min] # new code
+        
         ax.plot(mask[x1] - mask[x2], mask[y], ".", color="deeppink")
         ax.set_ylim(max(mask[y]), min(mask[y]) - 0.5)
         # ax.set_xlim(-1, 5)
         ax.set_xlabel("G_BP" + "-" + "G_RP", fontsize=16)
         ax.set_ylabel("G", fontsize=16)
+        self.x_lim = ax.get_xlim()
+        self.y_lim = ax.get_ylim()
         if savefig:
             f.savefig(self.plotNameRoot + "CMD.pdf", format="PDF", bbox_inches="tight")
         plt.show()
@@ -519,12 +550,16 @@ class GaiaClusterMembers(object):
     def generatePhotFile(self):
         if self.verbose > 0:
             print("generating phot file ...")
+       
         # create a *.phot file for input to BASE-9
         # would be nice if this was more general and could handle any set of photometry
 
         # take only those that pass the membership threshold
-        members = self.data.loc[self.data["membership"] > self.mem_min].copy(deep=True)
+        #old code members = self.data.loc[self.data["membership"] > self.mem_min].copy(deep=True)
+        members = self.radial_limited_data.loc[self.radial_limited_data["membership"] > self.mem_min].copy(deep=True)
+        
         print("Length of members = ", len(members))
+        print(members.columns)
 
         # include only the columns we need in the output table.
         # Currently I am not including Gaia photometry
@@ -620,6 +655,30 @@ class GaiaClusterMembers(object):
             )  # phot error floor of 0.02 is just what works from previous trys
 
         # replace any nan or mask values with -9.9 for sig, which BASE9 will ignore
+        out = out.rename(columns={"phot_g_mean_mag": "G"})
+        out = out.rename(columns={"phot_bp_mean_mag": "G_BP"})
+        out = out.rename(columns={"phot_rp_mean_mag": "G_RP"})
+        out = out.rename(columns={"g_mean_psf_mag": "g_ps"})
+        out = out.rename(columns={"r_mean_psf_mag": "r_ps"})
+        out = out.rename(columns={"i_mean_psf_mag": "i_ps"})
+        out = out.rename(columns={"z_mean_psf_mag": "z_ps"})
+        out = out.rename(columns={"y_mean_psf_mag": "y_ps"})
+        out = out.rename(columns={"phot_g_mean_mag_error": "sigG"})
+        out = out.rename(columns={"phot_bp_mean_mag_error": "sigG_BP"})
+        out = out.rename(columns={"phot_rp_mean_mag_error": "sigG_RP"})
+        out = out.rename(columns={"g_mean_psf_mag_error": "sigg_ps"})
+        out = out.rename(columns={"r_mean_psf_mag_error": "sigr_ps"})
+        out = out.rename(columns={"i_mean_psf_mag_error": "sigi_ps"})
+        out = out.rename(columns={"z_mean_psf_mag_error": "sigz_ps"})
+        out = out.rename(columns={"y_mean_psf_mag_error": "sigy_ps"})
+        out = out.rename(columns={"j_m": "J_2M"})
+        out = out.rename(columns={"h_m": "H_2M"})
+        out = out.rename(columns={"ks_m": "Ks_2M"})
+        out = out.rename(columns={"j_msigcom": "sigJ_2M"})
+        out = out.rename(columns={"h_msigcom": "sigH_2M"})
+        out = out.rename(columns={"ks_msigcom": "sigKs_2M"})
+        out = out.rename(columns={"membership": "CMprior"})
+
         for c in [
             "G",
             "G_BP",
@@ -634,6 +693,7 @@ class GaiaClusterMembers(object):
             "Ks_2M",
         ]:
             out[c] = out[c].fillna(99.9)
+            out[c] = out[c].replace(np.nan,99.9)
         for c in [
             "sigG",
             "sigG_BP",
@@ -648,6 +708,10 @@ class GaiaClusterMembers(object):
             "sigKs_2M",
         ]:
             out[c] = out[c].fillna(-9.9)
+            out[c] = out[c].replace(np.nan,-9.9)
+        print("after4")
+        print(out["J_2M"].value_counts().get(-9.9))
+        
 
         # expose this so it can be used elsewhere
         self.members = members
@@ -702,6 +766,9 @@ class GaiaClusterMembers(object):
             )
 
     def generateYamlFile(self):
+        print("GENERATING")
+        print(f"Length now: {len(self.yamlInputDict['Fe_H'])}")
+        print(self.yamlInputDict['Av'])
         if self.verbose > 0:
             print("generating yaml file ...")
 
@@ -1114,8 +1181,9 @@ class GaiaClusterMembers(object):
         color2="phot_rp_mean_mag",
         xrng=[0.5, 6],
         yrng=[20, 10],
-        yamlSigmaFactor=2.0,
+        yamlSigmaFactor=2.0
     ):
+        # I reconfigured code to run directly based on the .phot to make it indepedent of the pipeline (to use cleaning tool)
         """
         To run this in a Jupyter notebook (intended purpose):
         --------------------
@@ -1133,11 +1201,70 @@ class GaiaClusterMembers(object):
             title="", tools=TOOLS, width=500, height=700, x_range=xrng, y_range=yrng
         )
 
+        #new code added 
+        filename = self.clusterName + "_dir" + "/" + self.clusterName + ".phot"
+        self.data = pd.read_csv(filename,date_format=pd.DataFrame, delimiter= " ")
+        self.data.insert(len(self.data.columns),"membership",self.mem_min*2) #used to be True 
+        #rename column headers to match expected input 
+        self.data.rename(columns = {"G_BP":color1, "G_RP": color2, "G": mag}, inplace= True)
+        #remove data points with missing data 
+
+        print("before")
+        print(self.data["sigJ_2M"].value_counts().get(-9.9))
+        print(self.data.columns)
+        for c in [
+        "phot_g_mean_mag",
+        "phot_bp_mean_mag",
+        "phot_rp_mean_mag",
+        "g_ps",
+        "r_ps",
+        "i_ps",
+        "z_ps",
+        "y_ps",
+        "J_2M",
+        "H_2M",
+        "Ks_2M",
+        ]:
+            self.data[c] = self.data[c].replace(99.9,np.nan)
+
+        for c in [
+            "sigG",
+            "sigG_BP",
+            "sigG_RP",
+            "sigg_ps",
+            "sigr_ps",
+            "sigi_ps",
+            "sigz_ps",
+            "sigy_ps",
+            "sigJ_2M",
+            "sigH_2M",
+            "sigKs_2M",
+        ]:
+            self.data[c] = self.data[c].replace(-9.9,np.nan)
+        print("after")
+        print(self.data["sigJ_2M"].value_counts().get(-9.9))
+        
         self.df = self.data
+        
+        #does delete a couple of the -9.9s
+        condition = self.df[color1] != 99.9
+        condition2 = self.df[color2] != 99.9
+        #self.df = self.df.where(condition)
+        #self.df = self.df.where(condition2)
+       
+        #sets data to nan for all instances of 99.9 so theryre not used in making the cmd 
+
+       
         self.table = Table.from_pandas(self.df)
-        self.table["index"] = np.arange(0, len(self.data))
+        self.table["index"] = np.arange(0, len(self.data)) # this also used to be sef.data
+
+        
+      
         mask = self.df["membership"] >= self.mem_min
-        membershipOrg = self.df["membership"]  # in case I need to reset
+        membershipOrg = self.df["membership"]  # in case I need to reset    
+        
+       
+    
         # add an index column so that I can map back to the original data
         self.df["index"] = np.arange(0, len(self.df))
         # get the isochrone at the desired age and metallicity
@@ -1149,6 +1276,9 @@ class GaiaClusterMembers(object):
             color1=color1,
             color2=color2,
         )
+        
+
+
 
         # convert to observed mags given distance modulus and Av for these filters
         # taken from BASE-9 Star.cpp
@@ -1157,18 +1287,27 @@ class GaiaClusterMembers(object):
         # combinedMags[f] += distance;
         # combinedMags[f] += (evoModels.absCoeffs[f] - 1.0) * clust.abs;
         def offsetMag(magVal, magCol, mM, Av):
-            return magVal + mM + (self.absCoeffs[magCol] - 1.0) * Av
+            return np.array(magVal) + mM + (self.absCoeffs[magCol] - 1.0) * Av
 
+        def as_list(x):
+            if isinstance(x, np.ndarray):
+                return x.tolist()
+            elif isinstance(x, (list, tuple)):
+                return list(x)
+            else:
+                return [x]
+            
         def getObsIsochrone(iso, mM, Av):
+            print(iso)
             color1Obs = offsetMag(iso[color1], color1, mM, Av)
             color2Obs = offsetMag(iso[color2], color2, mM, Av)
             magObs = offsetMag(iso[mag], mag, mM, Av)
             return {
-                "x": color1Obs - color2Obs,
-                "y": magObs,
-                color1: iso[color1],
-                color2: iso[color2],
-                mag: iso[mag],
+                "x": as_list(color1Obs - color2Obs),
+                "y": as_list(magObs),
+                color1: as_list(iso[color1]),
+                color2: as_list(iso[color2]),
+                mag: as_list(iso[mag]),
             }
 
         # define the input for Bokeh
@@ -1187,6 +1326,9 @@ class GaiaClusterMembers(object):
                 index=self.table[mask]["index"],
             )
         )
+    
+            
+
         sourceCluster = ColumnDataSource(
             data=dict(
                 logAge=[initialGuess[0]],
@@ -1195,12 +1337,13 @@ class GaiaClusterMembers(object):
                 Av=[initialGuess[3]],
             )
         )
+    
         sourceIso = ColumnDataSource(
             getObsIsochrone(
                 iso, sourceCluster.data["distMod"][0], sourceCluster.data["Av"][0]
             )
         )
-
+       
         # add the photometry and isochrone to the plot
         photRenderer = p.scatter(source = sourcePhot, x = 'x', y = 'y', alpha = 0.5, size = 3, marker = 'circle', color = 'black')
         isoRenderer =  p.scatter(source = sourceIso, x = 'x', y = 'y', color = 'red', size = 5)
@@ -1282,6 +1425,9 @@ class GaiaClusterMembers(object):
         deleteButton = Button(label="Delete selected points", button_type="danger")
 
         def deleteCallback(event):
+            #after first deletion, deletion function doesnt seem to work perfectly
+            #might have something to do with the indexing getting reordered somehow
+            #also might have to do with setting stars with corrupt data to NaN
             # set the membership to -1, redefine the mask, and remove them from the columnDataSource
             indices = oldsourcePhot.data["index"][sourcePhot.selected.indices]
             self.table["membership"][indices] = -1
@@ -1293,6 +1439,7 @@ class GaiaClusterMembers(object):
                 y=self.df[mask][mag],
                 index=self.df[mask]["index"],
             )
+            #print(self.df["membership"].value_counts().get(-1,0))
             # reset
             mask1 = self.table["membership"] > self.mem_min
             oldsourcePhot.data = dict(
@@ -1326,8 +1473,95 @@ class GaiaClusterMembers(object):
         writeButton = Button(label="Write .phot and .yaml files", button_type="success")
 
         def writeCallback(event):
+            print("Before")
+            print(self.df["sigJ_2M"].value_counts().get(-9.9))
+            #convert back data to its old format
+
+            self.radial_limited_data = self.df
+            #add back points that had corrupt color data 
+            condition = self.radial_limited_data[color1] != "NaN"
+            condition2 = self.radial_limited_data[color2] != "NaN"
+            self.radial_limited_data = self.radial_limited_data.where(condition, other = 99.9)
+            self.radial_limited_data = self.radial_limited_data.where(condition2, other = 99.9)
+            print("after1")
+            print(self.radial_limited_data["sigJ_2M"].value_counts().get(-9.9))
+
+            #rename columns 
+            #out = out.rename(columns={"phot_g_mean_mag": "G"})
+            #out = out.rename(columns={"phot_bp_mean_mag": "G_BP"})
+            #out = out.rename(columns={"phot_rp_mean_mag": "G_RP"})
+            self.radial_limited_data = self.radial_limited_data.rename(columns={
+                "g_ps": "g_mean_psf_mag",
+                "r_ps": "r_mean_psf_mag",
+                "i_ps": "i_mean_psf_mag",
+                "z_ps": "z_mean_psf_mag",
+                "y_ps": "y_mean_psf_mag",
+                "sigG": "phot_g_mean_mag_error",
+                "sigG_BP": "phot_bp_mean_mag_error",
+                "sigG_RP": "phot_rp_mean_mag_error",
+                "sigg_ps": "g_mean_psf_mag_error",
+                "sigr_ps": "r_mean_psf_mag_error",
+                "sigi_ps": "i_mean_psf_mag_error",
+                "sigz_ps": "z_mean_psf_mag_error",
+                "sigy_ps": "y_mean_psf_mag_error",
+                "J_2M": "j_m",
+                "H_2M": "h_m",
+                "Ks_2M": "ks_m",
+                "sigJ_2M": "j_msigcom",
+                "sigH_2M": "h_msigcom",
+                "sigKs_2M": "ks_msigcom",
+            })
+            
+            
+            self.radial_limited_data.rename({color1: "G_BP", color2: "G_RP", mag: "G"}, inplace =True)
+            #delete membership column 
+            #self.df.drop(["membership"], inplace= True)
+            
+            filename = self.clusterName + "_dir" + "/" + self.clusterName + ".phot"
+            self.photOutputFileName= filename
+            filename  = self.clusterName + "_dir" + "/" + "base9" + ".yaml"
+            self.yamlOutputFileName= filename
+
+            print("after2")
+            print(self.radial_limited_data.columns)
+            print(self.radial_limited_data["j_msigcom"].value_counts().get(-9.9))
+            '''
+            for c in [
+                "phot_g_mean_mag",
+                "phot_bp_mean_mag",
+                "phot_rp_mean_mag",
+                "g_mean_psf_mag",
+                "r_mean_psf_mag",
+                "i_mean_psf_mag",
+                "z_mean_psf_mag",
+                "y_mean_psf_mag",
+                "j_m",
+                "h_m",
+                "ks_m",
+            ]:
+                self.radial_limited_data[c] = self.radial_limited_data[c].replace(np.nan, 99.9)
+
+            for c in [
+                "phot_g_mean_mag_error",
+                "phot_bp_mean_mag_error",
+                "phot_rp_mean_mag_error",
+                "g_mean_psf_mag_error",
+                "r_mean_psf_mag_error",
+                "i_mean_psf_mag_error",
+                "z_mean_psf_mag_error",
+                "y_mean_psf_mag_error",
+                "j_msigcom",
+                "h_msigcom",
+                "ks_msigcom",
+            ]:
+                self.radial_limited_data[c] = self.radial_limited_data[c].replace(np.nan, -9.9)
+            '''
             # output updated phot files
+            print("after3")
+            print(self.radial_limited_data["j_msigcom"].value_counts().get(np.nan))
             self.generatePhotFile()
+            
+           
 
             # update the yaml starting values and prior variances if necessary
             print("initial and final yaml [starting, mean, sigma] values:")
@@ -1335,6 +1569,7 @@ class GaiaClusterMembers(object):
             for k in keys:
                 # initial values
                 init = self.yamlInputDict[k].copy()
+                print(len(self.yamlInputDict[k]))
                 self.yamlInputDict[k][0] = sourceCluster.data[k][0]
 
                 # variances
@@ -1384,9 +1619,9 @@ class GaiaClusterMembers(object):
         <li>When finished, click the "Write files" button output the results.</li>\
         </ul>'
         )
-
         layout = column(title, instructions, row(p, buttons))
         return layout
+        
 
     def query_data(self, clusterName, filename):
         def distance_modulus_to_pc(distance_modulus):
@@ -1405,18 +1640,147 @@ class GaiaClusterMembers(object):
         self.getData(clusterName, filename)
         return
 
+    
+    #functions I've added
+    def CMDFromPhot(self, fileName = "CleanedCMD.pdf", min_x = None, max_x = None, min_y = None, max_y = None, scaled = False):
+        print("MAKING CMD")
+        filename  = self.clusterName + "_dir" + "/" + self.clusterName + ".phot"
+        photdata = pd.read_csv(filename,date_format=pd.DataFrame, delimiter= " ")
+        #phot file genreated creates stars at G = 99.9 if there are sus for base9 to ignore, so i delete them when generating cmd 
+        #this only filters for values based on GAIA because southern clusters dont have panstar data so the all stars would be filter out
+        
+        mask = [
+            "G",
+            "G_BP",
+            "G_RP",
+        ]
+        for m in mask:
+            photdata = photdata.query(f"{m} != 99.9")
+        #print(photdata.head(5))
+            
+       
+        #print(photdata.head(5))
+        y = photdata["G"]
+        x1= photdata["G_BP"]
+        x2 = photdata["G_RP"]
+
+        f, ax = plt.subplots(figsize=(5, 8))
+        ax.plot(x1 - x2, y, ".", color="deeppink")
+        ax.set_ylim(max(y), min(y) - 0.5)
+        
+        if scaled:
+            ax.set_ylim(self.y_lim)
+            ax.set_xlim(self.x_lim)        
+        if min_y != None and max_y != None:
+            ax.set_ylim(min_y,max_y)
+        if min_x != None and max_x != None:
+            ax.set_xlim(min_x,max_x)
+
+        # ax.set_xlim(-1, 5)
+        ax.set_xlabel("G_BP" + "-" + "G_RP", fontsize=16)
+        ax.set_ylabel("G", fontsize=16)
+        #if savefig:
+        f.savefig(self.plotNameRoot + fileName, format="PDF", bbox_inches="tight")
+        plt.show()
+    
+    def generateSpacialPlot(self):
+        members = self.radial_limited_data[self.radial_limited_data["membership"] > self.mem_min]
+        non_members= self.data[self.data["membership"] < self.mem_min]
+        #non_members= non_members[non_members["rCenter"] > self.member_lim_radius]
+        
+        fig = plt.figure(figsize=[6,8])
+        ax = fig.add_subplot()
+
+        x = members["ra"]
+        y = members["dec"]
+        z = members["distance"]
+
+        x2 = non_members["ra"]
+        y2 = non_members["dec"]
+        z2 = non_members["distance"]
+     
+        print(f"there are {len(x)} cluster members")
+        ax.scatter(x,y,c="blue",s=0.1,label="Members")
+        ax.scatter(x2,y2,c="grey",s=0.1,alpha=0.5,label="NonMembers")
+        ax.scatter(self.prior_ra,self.prior_dec,s=15.0,c="red",label="Prior")
+        ax.set_xlabel("Ra")
+        ax.set_ylabel("Dec")
+        plt.show()
+        fig.savefig(fname=self.plotNameRoot+"2dSpcial.png")
+
+
+        fig = plt.figure(figsize=[6,8])
+        ax = fig.add_subplot(projection="3d")
+        ax.scatter3D(x,y,z,c="blue",s=0.1)
+        ax.scatter3D(x2,y2,z2,c="grey",s=0.1,alpha=0.5)
+        ax.scatter3D(self.prior_ra,self.prior_dec,self.prior_pc,s=15.0,c="red",label="Prior")
+        ax.set_xlabel("Ra")
+        ax.set_ylabel("Dec")
+        ax.set_zlabel("Distance")
+        plt.show()
+        fig.savefig(fname=self.plotNameRoot+"3dSpcial.png")
+    
+    def createRadialLimitedData(self):
+        #sets  self.radial_limited_data to all cluster members within self.member_lim_radius
+        #print(self.data.head(10))
+        #inst actually memebr data because doesnt filter for member probabliltiy just filters by radius  
+        self.radial_limited_data = self.data.query(f"rCenter <= " +str(self.member_lim_radius))
+        #print(self.radial_limited_data.head(10))
+    
+    def delete_pan_star_data(self):
+        filename = self.clusterName + "_dir" + "/" + self.clusterName + ".phot"
+        outfile = self.clusterName + "_dir" + "/" + self.clusterName + "nops.phot"
+        self.data = pd.read_csv(filename,date_format=pd.DataFrame, delimiter= " ")
+        print(self.data.columns)
+        ps_parameters = ["g_ps","r_ps","i_ps","z_ps","y_ps", "sigg_ps", "sigr_ps", "sigi_ps", "sigz_ps", "sigy_ps"]
+        #for column in ps_parameters:
+        self.data = self.data.drop(ps_parameters, axis=1)
+        print(self.data.columns)
+        ffmt = "%-7.4f"
+        with open(outfile, "w", newline="\n") as f:
+            ascii.write(
+                Table.from_pandas(self.data),
+                delimiter=" ",
+                output=f,
+                format="basic",
+                overwrite=True,
+                formats={
+                    "G": ffmt,
+                    "G_BP": ffmt,
+                    "G_RP": ffmt,
+                    "J_2M": ffmt,
+                    "H_2M": ffmt,
+                    "Ks_2M": ffmt,
+                    "sigG": ffmt,
+                    "sigG_BP": ffmt,
+                    "sigG_RP": ffmt,
+                    "sigJ_2M": ffmt,
+                    "sigH_2M": ffmt,
+                    "sigKs_2M": ffmt,
+                    "mass1": "%-5.3f",
+                    "massRatio": "%-5.3f",
+                    "stage1": "%1i",
+                    "CMprior": "%-5.3f",
+                    "useDBI": "%1d",
+                },
+            )
+       
+
     def runAll(self, clusterName, filename=None):
+        self.clusterName=clusterName
         self.readDataFromFile(clusterName, filename)
         self.get_small_data(clusterName)
         params = ["radial_velocity", "distance", "pmra", "pmdec"]
         [self.get_p_value(param) for param in params]
         self.combineMemberships()
+        self.createRadialLimitedData()
         self.plotCMD(y="phot_g_mean_mag", x1="phot_bp_mean_mag", x2="phot_rp_mean_mag")
         self.generatePhotFile()
         self.generateYamlFile()
         self.get_coreRadius()
+        self.generateSpacialPlot()
         self.saveDataToFile(
-            "OC_data/" + clusterName + "_dir/" + clusterName + ".csv", mems_only=True
+           clusterName + "_dir/" + clusterName + ".csv", mems_only=True #removed  "OC_data/" +
         )
         plt.close("all")
         print("done.")
