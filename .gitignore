@@ -32,3 +32,6 @@ srun*.sh
 *.model
 *.png
 *.pdf
+
+#data directory 
+#_dir/
