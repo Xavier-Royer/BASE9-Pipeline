@@ -34,4 +34,4 @@ srun*.sh
 *.pdf
 
 #data directory 
-#_dir/
+*_dir/
