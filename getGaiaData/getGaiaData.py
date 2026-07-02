@@ -281,20 +281,45 @@ class GaiaClusterMembers(object):
         if self.verbose > 0:
             print(f"Saving data to file {filename} ... ")
         if mems_only:
-            self.data[self.data["membership"] > self.mem_min].to_csv(
+            self.membership_data.to_csv(
                 filename, sep=" ", index=False
             )
         else:
-            self.data.to_csv(filename, sep=" ", index=False)
+            self.all_data.to_csv(filename, sep=" ", index=False)
 
-    def readDataFromFile(self, clusterName, filename=None):
+    def readDataFromECSVFile(self, clusterName, filename=None):
         # read and save the data from an ecsv file
         if filename is None:
             filename = "GaiaData.ecsv"
 
         if self.verbose > 0:
             print(f"Reading data from file {filename} ... ")
-        self.data = pd.read_csv(filename, sep=" ")
+        
+        #rename headers to match what .phot expects 
+        self.csv_data = pd.read_csv(filename, sep=" ")
+        self.csv_data = self.csv_data.rename({"phot_g_mean_mag": "G",
+                              "phot_bp_mean_mag": "G_BP",
+                              "phot_rp_mean_mag": "G_RP",
+                              "g_mean_psf_mag": "g_ps",
+                              "r_mean_psf_mag": "r_ps",
+                              "i_mean_psf_mag": "i_ps",
+                              "z_mean_psf_mag": "z_ps",
+                              "y_mean_psf_mag": "y_ps",
+                              "phot_g_mean_mag_error": "sigG",
+                              "phot_bp_mean_mag_error": "sigG_BP",
+                              "phot_rp_mean_mag_error": "sigG_RP",
+                              "g_mean_psf_mag_error": "sigg_ps",
+                              "r_mean_psf_mag_error": "sigr_ps",
+                              "i_mean_psf_mag_error": "sigi_ps",
+                              "z_mean_psf_mag_error": "sigz_ps",
+                              "y_mean_psf_mag_error": "sigy_ps",
+                              "j_m": "J",
+                              "h_m": "H",
+                              "ks_m": "Ks",
+                              "j_msigcom": "sigJ_2M",
+                              "h_msigcom": "sigH_2M",
+                              "ks_msigcom": "sigKs_2M"},axis = 1)
+
 
     def get_small_data(self, clusterName):
         input_parameters = []
@@ -305,7 +330,7 @@ class GaiaClusterMembers(object):
                 input_parameters.append(lim_radius)
                 self.member_lim_radius = float(input("Member Maximum Radius?")) #used as criteria for filtering cluster members
                 input_parameters.append(self.member_lim_radius)
-                small_data = self.data[self.data["rCenter"] < lim_radius]
+                small_data = self.csv_data[self.csv_data["rCenter"] < lim_radius]
                 blob = small_data[["ra", "dec", "pmra", "pmdec", "parallax"]]
                 min_cluster_size = int(input("Min cluster size? (int)"))
                 input_parameters.append(min_cluster_size)
@@ -326,12 +351,12 @@ class GaiaClusterMembers(object):
                 group = small_data[small_data["label"] == group_no]
                 print("Cluster distance = ", np.median(group["distance"].values), " pc")
                 cs = plt.scatter(
-                    group["phot_bp_mean_mag"] - group["phot_rp_mean_mag"],
-                    group["phot_g_mean_mag"],
+                    group["G_BP"] - group["G_RP"],
+                    group["G"],
                     c=group["group_probabilities"],
                 )
-                low_ylim = min(group["phot_g_mean_mag"]) - 1
-                high_ylim = max(group["phot_g_mean_mag"]) + 1
+                low_ylim = min(group["G"]) - 1
+                high_ylim = max(group["G"]) + 1
                 plt.ylim(high_ylim, low_ylim)
                 plt.colorbar(cs, pad=0, label="Probability")
                 plt.show()
@@ -340,7 +365,7 @@ class GaiaClusterMembers(object):
             self.lim_radius = lim_radius
             self.min_cluster_size = min_cluster_size
         else:
-            small_data = self.data[self.data["rCenter"] < self.lim_radius]
+            small_data = self.csv_data[self.csv_data["rCenter"] < self.lim_radius]
             blob = small_data[["ra", "dec", "pmra", "pmdec", "parallax"]]
             clusterer = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size)
             clusterer.fit(blob)
@@ -349,12 +374,12 @@ class GaiaClusterMembers(object):
             group = small_data[small_data["label"] == self.group_no]
             print("Cluster distance = ", np.median(group["distance"].values), " pc")
             cs = plt.scatter(
-                group["phot_bp_mean_mag"] - group["phot_rp_mean_mag"],
-                group["phot_g_mean_mag"],
+                group["G_BP"] - group["G_RP"],
+                group["G"],
                 c=group["group_probabilities"],
             )
-            low_ylim = min(group["phot_g_mean_mag"]) - 1
-            high_ylim = max(group["phot_g_mean_mag"]) + 1
+            low_ylim = min(group["G"]) - 1
+            high_ylim = max(group["G"]) + 1
             plt.ylim(high_ylim, low_ylim)
             plt.colorbar(cs, pad=0, label="Probability")
             plt.title(clusterName)
@@ -423,38 +448,35 @@ class GaiaClusterMembers(object):
         ax[0].set_title(param + ", HDBSCAN members")
         ax[0].legend()
 
-        x = self.data[param][~np.isnan(self.data[param])]
+        x = self.csv_data[param][~np.isnan(self.csv_data[param])]
         hrv, brv = np.histogram(x, bins=int(len(x) / 3))
         ax[1].step(brv[:-1], hrv, color="black")
         ax[1].plot(xf, gauss(xf, max(hrv), mean, sig), color="deeppink", lw=3)
         ax[1].set_xlim(low_lim, high_lim)
         ax[1].set_title(param + ", all data")
 
-        self.data[df_name] = (self.data[param] - mean) ** 2 / (sig**2)
+        self.csv_data[df_name] = (self.csv_data[param] - mean) ** 2 / (sig**2)
         fig.savefig(self.plotNameRoot + param + "_hist.png", bbox_inches="tight")
         plt.show()
 
     def combineMemberships(self):
         if self.verbose > 0:
             print("combining memberships ...")
-        self.data["PPM"] = self.data["PPMra"].fillna(0) + self.data["PPMdec"].fillna(0)
-        df = self.data
+        self.all_data = self.csv_data.copy(True)
+        self.all_data["PPM"] = self.all_data["PPMra"].fillna(0) + self.all_data["PPMdec"].fillna(0)
+        df = self.all_data
         chi2 = (
             df["PRV"].fillna(0)
             + df["PPa"].fillna(0)
-            + self.data["PPMra"].fillna(0)
-            + self.data["PPMdec"].fillna(0)
+            + self.all_data["PPMra"].fillna(0)
+            + self.all_data["PPMdec"].fillna(0)
         )
         # p=1-stats.chi2.cdf(chi2, 3)
         p = stats.chi2.sf(chi2, 4)
-        self.data["membership"] = p
+        self.all_data["membership"] = p
 
     def get_coreRadius(self):
-        #old code mask = self.data["membership"] > self.mem_min
-        #old code members = self.data[mask]
-
-        mask = self.radial_limited_data["membership"] > self.mem_min
-        members = self.radial_limited_data[mask]
+        members = self.membership_data
         bins = np.linspace(0, np.max(members["rCenter"]) * 60, 50)
 
         # calculate the bin centers
@@ -516,9 +538,9 @@ class GaiaClusterMembers(object):
     def plotCMD(
         self,
         data=None,
-        x1="g_mean_psf_mag",
-        x2="i_mean_psf_mag",
-        y="g_mean_psf_mag",
+        x1="G_BP",
+        x2="G_RP",
+        y="G",
         m="membership",
         savefig=True,
     ):
@@ -526,18 +548,17 @@ class GaiaClusterMembers(object):
             print("plotting CMD ...")
 
         if data is None:
-            data = self.data
+            data = self.all_data
 
         # I could specify the columns to use
         f, ax = plt.subplots(figsize=(5, 8))
         ax.plot(data[x1] - data[x2], data[y], ".", color="lightgray")
 
         # members
-        #old code mask = self.data[self.data["membership"] > self.mem_min]
-        mask = self.radial_limited_data[self.radial_limited_data["membership"] > self.mem_min] # new code
+       
         
-        ax.plot(mask[x1] - mask[x2], mask[y], ".", color="deeppink")
-        ax.set_ylim(max(mask[y]), min(mask[y]) - 0.5)
+        ax.plot(self.membership_data[x1] - self.membership_data[x2], self.membership_data[y], ".", color="deeppink")
+        ax.set_ylim(max(self.membership_data[y]), min(self.membership_data[y]) - 0.5)
         # ax.set_xlim(-1, 5)
         ax.set_xlabel("G_BP" + "-" + "G_RP", fontsize=16)
         ax.set_ylabel("G", fontsize=16)
@@ -555,8 +576,7 @@ class GaiaClusterMembers(object):
         # would be nice if this was more general and could handle any set of photometry
 
         # take only those that pass the membership threshold
-        #old code members = self.data.loc[self.data["membership"] > self.mem_min].copy(deep=True)
-        members = self.radial_limited_data.loc[self.radial_limited_data["membership"] > self.mem_min].copy(deep=True)
+        members = self.membership_data.copy(deep=True)
         
         # include only the columns we need in the output table.
         # Currently I am not including Gaia photometry
@@ -571,59 +591,37 @@ class GaiaClusterMembers(object):
         )
         out = members[
             [
-                "id",
-                "phot_g_mean_mag",
-                "phot_bp_mean_mag",
-                "phot_rp_mean_mag",
-                "g_mean_psf_mag",
-                "r_mean_psf_mag",
-                "i_mean_psf_mag",
-                "z_mean_psf_mag",
-                "y_mean_psf_mag",
-                "j_m",
-                "h_m",
-                "ks_m",
-                "phot_g_mean_mag_error",
-                "phot_bp_mean_mag_error",
-                "phot_rp_mean_mag_error",
-                "g_mean_psf_mag_error",
-                "r_mean_psf_mag_error",
-                "i_mean_psf_mag_error",
-                "z_mean_psf_mag_error",
-                "y_mean_psf_mag_error",
-                "j_msigcom",
-                "h_msigcom",
-                "ks_msigcom",
-                "mass1",
-                "massRatio",
-                "stage1",
-                "membership",
-                "useDBI",
-            ]
-        ].copy(deep=True)
+            "id",
+            "G",
+            "G_BP",
+            "G_RP",
+            "g_ps",
+            "r_ps",
+            "i_ps",
+            "z_ps",
+            "y_ps",
+            "J",
+            "H",
+            "Ks",
+            "sigG",
+            "sigG_BP",
+            "sigG_RP",
+            "sigg_ps",
+            "sigr_ps",
+            "sigi_ps",
+            "sigz_ps",
+            "sigy_ps",
+            "sigJ_2M",
+            "sigH_2M",
+            "sigKs_2M",
+            "mass1",
+            "massRatio",
+            "stage1",
+            "membership",
+            "useDBI",
+            ]].copy(deep=True)
+        
         # rename columns
-        out = out.rename(columns={"phot_g_mean_mag": "G"})
-        out = out.rename(columns={"phot_bp_mean_mag": "G_BP"})
-        out = out.rename(columns={"phot_rp_mean_mag": "G_RP"})
-        out = out.rename(columns={"g_mean_psf_mag": "g_ps"})
-        out = out.rename(columns={"r_mean_psf_mag": "r_ps"})
-        out = out.rename(columns={"i_mean_psf_mag": "i_ps"})
-        out = out.rename(columns={"z_mean_psf_mag": "z_ps"})
-        out = out.rename(columns={"y_mean_psf_mag": "y_ps"})
-        out = out.rename(columns={"phot_g_mean_mag_error": "sigG"})
-        out = out.rename(columns={"phot_bp_mean_mag_error": "sigG_BP"})
-        out = out.rename(columns={"phot_rp_mean_mag_error": "sigG_RP"})
-        out = out.rename(columns={"g_mean_psf_mag_error": "sigg_ps"})
-        out = out.rename(columns={"r_mean_psf_mag_error": "sigr_ps"})
-        out = out.rename(columns={"i_mean_psf_mag_error": "sigi_ps"})
-        out = out.rename(columns={"z_mean_psf_mag_error": "sigz_ps"})
-        out = out.rename(columns={"y_mean_psf_mag_error": "sigy_ps"})
-        out = out.rename(columns={"j_m": "J_2M"})
-        out = out.rename(columns={"h_m": "H_2M"})
-        out = out.rename(columns={"ks_m": "Ks_2M"})
-        out = out.rename(columns={"j_msigcom": "sigJ_2M"})
-        out = out.rename(columns={"h_msigcom": "sigH_2M"})
-        out = out.rename(columns={"ks_msigcom": "sigKs_2M"})
         out = out.rename(columns={"membership": "CMprior"})
 
         out["CMprior"] = np.where(
@@ -651,31 +649,7 @@ class GaiaClusterMembers(object):
                 (out[c] < 0.02), 0.02, out[c]
             )  # phot error floor of 0.02 is just what works from previous trys
 
-        # replace any nan or mask values with -9.9 for sig, which BASE9 will ignore
-        out = out.rename(columns={"phot_g_mean_mag": "G"})
-        out = out.rename(columns={"phot_bp_mean_mag": "G_BP"})
-        out = out.rename(columns={"phot_rp_mean_mag": "G_RP"})
-        out = out.rename(columns={"g_mean_psf_mag": "g_ps"})
-        out = out.rename(columns={"r_mean_psf_mag": "r_ps"})
-        out = out.rename(columns={"i_mean_psf_mag": "i_ps"})
-        out = out.rename(columns={"z_mean_psf_mag": "z_ps"})
-        out = out.rename(columns={"y_mean_psf_mag": "y_ps"})
-        out = out.rename(columns={"phot_g_mean_mag_error": "sigG"})
-        out = out.rename(columns={"phot_bp_mean_mag_error": "sigG_BP"})
-        out = out.rename(columns={"phot_rp_mean_mag_error": "sigG_RP"})
-        out = out.rename(columns={"g_mean_psf_mag_error": "sigg_ps"})
-        out = out.rename(columns={"r_mean_psf_mag_error": "sigr_ps"})
-        out = out.rename(columns={"i_mean_psf_mag_error": "sigi_ps"})
-        out = out.rename(columns={"z_mean_psf_mag_error": "sigz_ps"})
-        out = out.rename(columns={"y_mean_psf_mag_error": "sigy_ps"})
-        out = out.rename(columns={"j_m": "J_2M"})
-        out = out.rename(columns={"h_m": "H_2M"})
-        out = out.rename(columns={"ks_m": "Ks_2M"})
-        out = out.rename(columns={"j_msigcom": "sigJ_2M"})
-        out = out.rename(columns={"h_msigcom": "sigH_2M"})
-        out = out.rename(columns={"ks_msigcom": "sigKs_2M"})
-        out = out.rename(columns={"membership": "CMprior"})
-
+        # replace any nan values with -9.9 for sig, which BASE9 will ignore
         for c in [
             "G",
             "G_BP",
@@ -685,9 +659,9 @@ class GaiaClusterMembers(object):
             "i_ps",
             "z_ps",
             "y_ps",
-            "J_2M",
-            "H_2M",
-            "Ks_2M",
+            "J",
+            "H",
+            "Ks",
         ]:
             out[c] = out[c].fillna(99.9)
             out[c] = out[c].replace(np.nan,99.9)
@@ -706,12 +680,6 @@ class GaiaClusterMembers(object):
         ]:
             out[c] = out[c].fillna(-9.9)
             out[c] = out[c].replace(np.nan,-9.9)
-      
-        
-
-        # expose this so it can be used elsewhere
-        self.members = members
-
         # write the phot file
         self.dumpPhotFile(out)
 
@@ -739,9 +707,9 @@ class GaiaClusterMembers(object):
                     "i_ps": ffmt,
                     "z_ps": ffmt,
                     "y_ps": ffmt,
-                    "J_2M": ffmt,
-                    "H_2M": ffmt,
-                    "Ks_2M": ffmt,
+                    "J": ffmt,
+                    "H": ffmt,
+                    "Ks": ffmt,
                     "sigG": ffmt,
                     "sigG_BP": ffmt,
                     "sigG_RP": ffmt,
@@ -872,16 +840,16 @@ class GaiaClusterMembers(object):
             title="", tools=TOOLS, width=500, height=700, x_range=xrng, y_range=yrng
         )
 
-        mask = self.data["membership"] >= self.mem_min
-        membershipOrg = self.data["membership"].data.copy()  # in case I need to reset
+        mask = self.membership_data["membership"] >= self.mem_min
+        membershipOrg = self.membership_data["membership"].data.copy()  # in case I need to reset
         # add an index column so that I can map back to the original data
-        self.data["index"] = np.arange(0, len(self.data))
+        self.membership_data["index"] = np.arange(0, len(self.membership_data))
 
         sourcePhot = ColumnDataSource(
             data=dict(
-                x=self.data[mask][color1] - self.data[mask][color2],
-                y=self.data[mask][mag],
-                index=self.data[mask]["index"],
+                x=self.membership_data[mask][color1] - self.membership_data[mask][color2],
+                y=self.membership_data[mask][mag],
+                index=self.membership_data[mask]["index"],
             )
         )
         # empty for now, but will be filled below in updateUseDBI
@@ -925,16 +893,16 @@ class GaiaClusterMembers(object):
                 # find the distance for each point to the user-drawn line
                 # clear the singles data
                 data = dict(x=[], y=[])
-                for i, rows in enumerate(self.data):
+                for i, rows in enumerate(self.membership_data):
                     if mask[i]:
                         x = rows[color1] - rows[color2]
                         y = rows[mag]
                         pte = shPt(x, y)
                         dst = pte.distance(lne)
                         # if the distance is within the user-defined tolerance, set the status to selected
-                        self.data[i]["useDBI"] = 0
+                        self.membership_data[i]["useDBI"] = 0
                         if dst < slider.value:
-                            self.data[i]["useDBI"] = 1
+                            self.membership_data[i]["useDBI"] = 1
                             data["x"].append(x)
                             data["y"].append(y)
                 sourcePhotSingles.data = data
@@ -967,13 +935,13 @@ class GaiaClusterMembers(object):
         def resetCallback(event):
             newPoints.data = dict(x=[], y=[])
             slider.value = 0.01
-            self.data["useDBI"] = [0] * len(self.data)
-            self.data["membership"] = membershipOrg
-            mask = self.data["membership"] >= self.mem_min
+            self.membership_data["useDBI"] = [0] * len(self.membership_data)
+            self.membership_data["membership"] = membershipOrg
+            mask = self.membership_data["membership"] >= self.mem_min
             sourcePhot.data = dict(
-                x=self.data[mask][color1] - self.data[mask][color2],
-                y=self.data[mask][mag],
-                index=self.data[mask]["index"],
+                x=self.membership_data[mask][color1] - self.membership_data[mask][color2],
+                y=self.membership_data[mask][mag],
+                index=self.membership_data[mask]["index"],
             )
 
         resetButton.on_click(resetCallback)
@@ -993,13 +961,13 @@ class GaiaClusterMembers(object):
             # set the membership to -1, redefine the mask, and remove them from the columnDataSource
             if len(sourcePhot.selected.indices) > 0:
                 indices = sourcePhot.data["index"][sourcePhot.selected.indices]
-                self.data["membership"][indices] = -1
-                mask = self.data["membership"] >= self.mem_min
+                self.membership_data["membership"][indices] = -1
+                mask = self.membership_data["membership"] >= self.mem_min
                 # mask = (((self.data['PRV'] >= self.RV_memmin) & (self.data['PPa'] >= self.Pa_memmin)) & (self.data['PPM'] >= self.PM_memmin))
                 sourcePhot.data = dict(
-                    x=self.data[mask][color1] - self.data[mask][color2],
-                    y=self.data[mask][mag],
-                    index=self.data[mask]["index"],
+                    x=self.membership_data[mask][color1] - self.data[mask][color2],
+                    y=self.membership_data[mask][mag],
+                    index=self.membership_data[mask]["index"],
                 )
                 # reset
                 sourcePhot.selected.indices = []
@@ -1064,9 +1032,9 @@ class GaiaClusterMembers(object):
         age,
         FeH,
         isochroneFile,
-        mag="phot_g_mean_mag",
-        color1="phot_bp_mean_mag",
-        color2="phot_rp_mean_mag",
+        mag="G",
+        color1="G_BP",
+        color2="G_RP",
     ):
         # perform a linear interpolation in the model grid between the closest points
 
@@ -1133,7 +1101,7 @@ class GaiaClusterMembers(object):
             # We cannot interpolate on mass since that is not unique and not strictly ascedning
             # Ideally we would interpolate on initial mass, but that is not included in the BASE-9 model files
             # I will interpolate on EEP, which I *think* is a number that is unique for each star
-            df = df[np.unique(["EEP", mag, color1, color2, "logAge", "Fe_H"])]
+            df = df[np.unique(["EEP", self.parsecmag, self.parseccolor1, self.parseccolor2, "logAge", "Fe_H"])]
             ages = df["logAge"].unique()
             FeHs = df["Fe_H"].unique()
             EEPs = df["EEP"].unique()
@@ -1144,7 +1112,8 @@ class GaiaClusterMembers(object):
             # create an array to interpolate on
             # https://stackoverflow.com/questions/30056577/correct-usage-of-scipy-interpolate-regulargridinterpolator
             pts = (ages, FeHs, np.sort(EEPs))
-            for arr in np.unique([mag, color1, color2]):
+            
+            for arr in np.unique([self.parsecmag, self.parseccolor1, self.parseccolor2]):
                 val_size = list(map(lambda q: q.shape[0], pts))
                 vals = np.zeros(val_size)
                 for i, a in enumerate(ages):
@@ -1155,7 +1124,7 @@ class GaiaClusterMembers(object):
 
                 interpolator = RegularGridInterpolator(pts, vals)
                 results[arr] = interpolator((age, FeH, EEPs))
-
+            results.rename_columns([self.parsecmag, self.parseccolor1, self.parseccolor2], [mag,color1,color2])
             return results
 
         except Exception as e:
@@ -1165,16 +1134,52 @@ class GaiaClusterMembers(object):
             )
             return None
 
+
+    def replaceNullValues(self, data, av_initial, sig_initial, av_final, sig_final):
+        for c in [
+        "G",
+        "G_BP",
+        "G_RP",
+        "g_ps",
+        "r_ps",
+        "i_ps",
+        "z_ps",
+        "y_ps",
+        "J",
+        "H",
+        "Ks",
+        ]:
+            data[c] = data[c].replace(av_initial, av_final)#(99.9,np.nan)
+
+        for c in [
+            "sigG",
+            "sigG_BP",
+            "sigG_RP",
+            "sigg_ps",
+            "sigr_ps",
+            "sigi_ps",
+            "sigz_ps",
+            "sigy_ps",
+            "sigJ_2M",
+            "sigH_2M",
+            "sigKs_2M",
+        ]:
+            data[c] = data[c].replace(sig_initial,sig_final)
+
+
     def createInteractiveIsochrone(
         self,
         isochroneFile,
         initialGuess=[4, 0, 0, 0],
-        mag="phot_g_mean_mag",
-        color1="phot_bp_mean_mag",
-        color2="phot_rp_mean_mag",
+        mag="G",
+        color1="G_BP",
+        color2="G_RP",
         xrng=[0.5, 6],
         yrng=[20, 10],
-        yamlSigmaFactor=2.0
+        yamlSigmaFactor=2.0,
+        parsecmag = "phot_g_mean_mag",
+        parseccolor1 = "phot_bp_mean_mag",
+        parseccolor2 = "phot_rp_mean_mag",
     ):
         # I reconfigured code to run directly based on the .phot to make it indepedent of the pipeline (to use cleaning tool)
         """
@@ -1194,64 +1199,25 @@ class GaiaClusterMembers(object):
             title="", tools=TOOLS, width=500, height=700, x_range=xrng, y_range=yrng
         )
 
-        #new code added 
-        filename = self.clusterName + "_dir" + "/" + self.clusterName + ".phot"
-        self.data = pd.read_csv(filename,date_format=pd.DataFrame, delimiter= " ")
-        self.data.insert(len(self.data.columns),"membership",self.mem_min*2) #used to be True 
-        #rename column headers to match expected input 
-        self.data.rename(columns = {"G_BP":color1, "G_RP": color2, "G": mag}, inplace= True)
-        #remove data points with missing data 
-
-        for c in [
-        "phot_g_mean_mag",
-        "phot_bp_mean_mag",
-        "phot_rp_mean_mag",
-        "g_ps",
-        "r_ps",
-        "i_ps",
-        "z_ps",
-        "y_ps",
-        "J_2M",
-        "H_2M",
-        "Ks_2M",
-        ]:
-            self.data[c] = self.data[c].replace(99.9,np.nan)
-
-        for c in [
-            "sigG",
-            "sigG_BP",
-            "sigG_RP",
-            "sigg_ps",
-            "sigr_ps",
-            "sigi_ps",
-            "sigz_ps",
-            "sigy_ps",
-            "sigJ_2M",
-            "sigH_2M",
-            "sigKs_2M",
-        ]:
-            self.data[c] = self.data[c].replace(-9.9,np.nan)
-        self.df = self.data
+        #these should be passed in as paramters (rn theyre hard coded) (they match with the parsec model's expected headers)
+        self.parsecmag = parsecmag
+        self.parseccolor1 = parseccolor1
+        self.parseccolor2 = parseccolor2
         
-        #does delete a couple of the -9.9s
-        condition = self.df[color1] != 99.9
-        condition2 = self.df[color2] != 99.9
-        #self.df = self.df.where(condition)
-        #self.df = self.df.where(condition2)
-       
+        #new code added 
+        self.readPhotFile()
         #sets data to nan for all instances of 99.9 so theryre not used in making the cmd 
-
-       
+        self.replaceNullValues(self.membership_data,99.9,-9.9,np.nan,np.nan)
+        self.membership_data = self.membership_data.rename({"CMprior": "membership"},axis =1)
+        self.df = self.membership_data.copy(deep=True)
+     
         self.table = Table.from_pandas(self.df)
-        self.table["index"] = np.arange(0, len(self.data)) # this also used to be sef.data
-
+        self.table["index"] = np.arange(0, len(self.membership_data)) 
         
       
         mask = self.df["membership"] >= self.mem_min
         membershipOrg = self.df["membership"]  # in case I need to reset    
         
-       
-    
         # add an index column so that I can map back to the original data
         self.df["index"] = np.arange(0, len(self.df))
         # get the isochrone at the desired age and metallicity
@@ -1263,10 +1229,8 @@ class GaiaClusterMembers(object):
             color1=color1,
             color2=color2,
         )
+       
         
-
-
-
         # convert to observed mags given distance modulus and Av for these filters
         # taken from BASE-9 Star.cpp
         # abs is input Av
@@ -1285,9 +1249,9 @@ class GaiaClusterMembers(object):
                 return [x]
             
         def getObsIsochrone(iso, mM, Av):
-            color1Obs = offsetMag(iso[color1], color1, mM, Av)
-            color2Obs = offsetMag(iso[color2], color2, mM, Av)
-            magObs = offsetMag(iso[mag], mag, mM, Av)
+            color1Obs = offsetMag(iso[color1], self.parseccolor1, mM, Av)
+            color2Obs = offsetMag(iso[color2], self.parseccolor2, mM, Av)
+            magObs = offsetMag(iso[mag], self.parsecmag, mM, Av)
             return {
                 "x": as_list(color1Obs - color2Obs),
                 "y": as_list(magObs),
@@ -1324,6 +1288,7 @@ class GaiaClusterMembers(object):
             )
         )
     
+       
         sourceIso = ColumnDataSource(
             getObsIsochrone(
                 iso, sourceCluster.data["distMod"][0], sourceCluster.data["Av"][0]
@@ -1419,12 +1384,15 @@ class GaiaClusterMembers(object):
             self.table["membership"][indices] = -1
             del_ids = self.table["id"][self.table["index"][indices]]
             self.df["membership"][self.df["id"].isin(del_ids)] = -1
+           
             mask = self.df["membership"] >= self.mem_min
+          
             sourcePhot.data = dict(
                 x=self.df[mask][color1] - self.df[mask][color2],
                 y=self.df[mask][mag],
                 index=self.df[mask]["index"],
             )
+           
             #print(self.df["membership"].value_counts().get(-1,0))
             # reset
             mask1 = self.table["membership"] > self.mem_min
@@ -1460,42 +1428,14 @@ class GaiaClusterMembers(object):
 
         def writeCallback(event):
             #convert back data to its old format
-
-            self.radial_limited_data = self.df
+            self.membership_data = self.df.query("membership!=-1")
             #add back points that had corrupt color data 
-            condition = self.radial_limited_data[color1] != "NaN"
-            condition2 = self.radial_limited_data[color2] != "NaN"
-            self.radial_limited_data = self.radial_limited_data.where(condition, other = 99.9)
-            self.radial_limited_data = self.radial_limited_data.where(condition2, other = 99.9)
+            condition = self.membership_data[color1] != "NaN"
+            condition2 = self.membership_data[color2] != "NaN"
+            self.membership_data = self.membership_data.where(condition, other = 99.9)
+            self.membership_data = self.membership_data.where(condition2, other = 99.9)
 
             #rename columns 
-            #out = out.rename(columns={"phot_g_mean_mag": "G"})
-            #out = out.rename(columns={"phot_bp_mean_mag": "G_BP"})
-            #out = out.rename(columns={"phot_rp_mean_mag": "G_RP"})
-            self.radial_limited_data = self.radial_limited_data.rename(columns={
-                "g_ps": "g_mean_psf_mag",
-                "r_ps": "r_mean_psf_mag",
-                "i_ps": "i_mean_psf_mag",
-                "z_ps": "z_mean_psf_mag",
-                "y_ps": "y_mean_psf_mag",
-                "sigG": "phot_g_mean_mag_error",
-                "sigG_BP": "phot_bp_mean_mag_error",
-                "sigG_RP": "phot_rp_mean_mag_error",
-                "sigg_ps": "g_mean_psf_mag_error",
-                "sigr_ps": "r_mean_psf_mag_error",
-                "sigi_ps": "i_mean_psf_mag_error",
-                "sigz_ps": "z_mean_psf_mag_error",
-                "sigy_ps": "y_mean_psf_mag_error",
-                "J_2M": "j_m",
-                "H_2M": "h_m",
-                "Ks_2M": "ks_m",
-                "sigJ_2M": "j_msigcom",
-                "sigH_2M": "h_msigcom",
-                "sigKs_2M": "ks_msigcom",
-            })
-            
-            
-            self.radial_limited_data.rename({color1: "G_BP", color2: "G_RP", mag: "G"}, inplace =True)
             #delete membership column 
             #self.df.drop(["membership"], inplace= True)
             
@@ -1503,39 +1443,6 @@ class GaiaClusterMembers(object):
             self.photOutputFileName= filename
             filename  = self.clusterName + "_dir" + "/" + "base9" + ".yaml"
             self.yamlOutputFileName= filename
-
-           
-            '''
-            for c in [
-                "phot_g_mean_mag",
-                "phot_bp_mean_mag",
-                "phot_rp_mean_mag",
-                "g_mean_psf_mag",
-                "r_mean_psf_mag",
-                "i_mean_psf_mag",
-                "z_mean_psf_mag",
-                "y_mean_psf_mag",
-                "j_m",
-                "h_m",
-                "ks_m",
-            ]:
-                self.radial_limited_data[c] = self.radial_limited_data[c].replace(np.nan, 99.9)
-
-            for c in [
-                "phot_g_mean_mag_error",
-                "phot_bp_mean_mag_error",
-                "phot_rp_mean_mag_error",
-                "g_mean_psf_mag_error",
-                "r_mean_psf_mag_error",
-                "i_mean_psf_mag_error",
-                "z_mean_psf_mag_error",
-                "y_mean_psf_mag_error",
-                "j_msigcom",
-                "h_msigcom",
-                "ks_msigcom",
-            ]:
-                self.radial_limited_data[c] = self.radial_limited_data[c].replace(np.nan, -9.9)
-            '''
             # output updated phot files
             self.generatePhotFile()
             
@@ -1632,10 +1539,6 @@ class GaiaClusterMembers(object):
         ]
         for m in mask:
             photdata = photdata.query(f"{m} != 99.9")
-        #print(photdata.head(5))
-            
-       
-        #print(photdata.head(5))
         y = photdata["G"]
         x1= photdata["G_BP"]
         x2 = photdata["G_RP"]
@@ -1661,10 +1564,9 @@ class GaiaClusterMembers(object):
         plt.show()
     
     def generateSpacialPlot(self):
-        members = self.radial_limited_data[self.radial_limited_data["membership"] > self.mem_min]
-        non_members= self.data[self.data["membership"] < self.mem_min]
-        #non_members= non_members[non_members["rCenter"] > self.member_lim_radius]
-        
+        members = self.membership_data
+        non_members= self.all_data[self.all_data["membership"] < self.mem_min]
+
         fig = plt.figure(figsize=[6,8])
         ax = fig.add_subplot()
 
@@ -1697,24 +1599,23 @@ class GaiaClusterMembers(object):
         plt.show()
         fig.savefig(fname=self.plotNameRoot+"3dSpcial.png")
     
-    def createRadialLimitedData(self):
-        #sets  self.radial_limited_data to all cluster members within self.member_lim_radius
-        #print(self.data.head(10))
-        #inst actually memebr data because doesnt filter for member probabliltiy just filters by radius  
-        self.radial_limited_data = self.data.query(f"rCenter <= " +str(self.member_lim_radius))
-        #print(self.radial_limited_data.head(10))
+    def getMembershipData(self):
+        #from all_data gets members based on membership probability and radial limit 
+        self.membership_data = self.all_data.query(f"rCenter <= " +str(self.member_lim_radius))
+        self.membership_data = self.membership_data.query(f"membership >= {self.mem_min}")
+
     
     def delete_pan_star_data(self):
         filename = self.clusterName + "_dir" + "/" + self.clusterName + ".phot"
         outfile = self.clusterName + "_dir" + "/" + self.clusterName + "nops.phot"
-        self.data = pd.read_csv(filename,date_format=pd.DataFrame, delimiter= " ")
+        d = pd.read_csv(filename,date_format=pd.DataFrame, delimiter= " ")
         ps_parameters = ["g_ps","r_ps","i_ps","z_ps","y_ps", "sigg_ps", "sigr_ps", "sigi_ps", "sigz_ps", "sigy_ps"]
         #for column in ps_parameters:
-        self.data = self.data.drop(ps_parameters, axis=1)
+        d = d.drop(ps_parameters, axis=1)
         ffmt = "%-7.4f"
         with open(outfile, "w", newline="\n") as f:
             ascii.write(
-                Table.from_pandas(self.data),
+                Table.from_pandas(d),
                 delimiter=" ",
                 output=f,
                 format="basic",
@@ -1742,16 +1643,29 @@ class GaiaClusterMembers(object):
         print("Ps data removed.")
        
 
+    def readPhotFile(self):
+        filename = self.clusterName + "_dir" + "/" + self.clusterName + ".phot"
+        self.membership_data = pd.read_csv(filename,date_format=pd.DataFrame, delimiter= " ")
+
+
     def runAll(self, clusterName, filename=None):
         #reset parameters to run again
         self.group_no = None
-        self.readDataFromFile(clusterName, filename)
+        
+        #reads data from csv 
+        self.readDataFromECSVFile(clusterName, filename)
+
+        #get cluster memebership probablities 
         self.get_small_data(clusterName)
         params = ["radial_velocity", "distance", "pmra", "pmdec"]
         [self.get_p_value(param) for param in params]
+        #switches to using self.all_data
         self.combineMemberships()
-        self.createRadialLimitedData()
-        self.plotCMD(y="phot_g_mean_mag", x1="phot_bp_mean_mag", x2="phot_rp_mean_mag")
+        
+        #switches to using self.membership_data
+        self.getMembershipData()
+
+        self.plotCMD(y="G", x1="G_BP", x2="G_RP")
         self.generatePhotFile()
         self.generateYamlFile()
         self.get_coreRadius()
